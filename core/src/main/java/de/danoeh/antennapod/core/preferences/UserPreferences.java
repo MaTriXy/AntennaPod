@@ -65,6 +65,7 @@ public class UserPreferences {
     public static final String PREF_UNPAUSE_ON_HEADSET_RECONNECT = "prefUnpauseOnHeadsetReconnect";
     public static final String PREF_UNPAUSE_ON_BLUETOOTH_RECONNECT = "prefUnpauseOnBluetoothReconnect";
     public static final String PREF_HARDWARE_FOWARD_BUTTON_SKIPS = "prefHardwareForwardButtonSkips";
+    public static final String PREF_HARDWARE_PREVIOUS_BUTTON_RESTARTS = "prefHardwarePreviousButtonRestarts";
     public static final String PREF_FOLLOW_QUEUE = "prefFollowQueue";
     public static final String PREF_SKIP_KEEPS_EPISODE = "prefSkipKeepsEpisode";
     public static final String PREF_AUTO_DELETE = "prefAutoDelete";
@@ -282,6 +283,10 @@ public class UserPreferences {
         return prefs.getBoolean(PREF_HARDWARE_FOWARD_BUTTON_SKIPS, false);
     }
 
+    public static boolean shouldHardwarePreviousButtonRestart() {
+        return prefs.getBoolean(PREF_HARDWARE_PREVIOUS_BUTTON_RESTARTS, false);
+    }
+
 
     public static boolean isFollowQueue() {
         return prefs.getBoolean(PREF_FOLLOW_QUEUE, true);
@@ -332,7 +337,10 @@ public class UserPreferences {
     }
 
 
-
+    /*
+     * Returns update interval in milliseconds; value 0 means that auto update is disabled
+     * or feeds are updated at a certain time of day
+     */
     public static long getUpdateInterval() {
         String updateInterval = prefs.getString(PREF_UPDATE_INTERVAL, "0");
         if(!updateInterval.contains(":")) {
@@ -754,12 +762,12 @@ public class UserPreferences {
         if (timeOfDay.length == 2) {
             restartUpdateTimeOfDayAlarm(timeOfDay[0], timeOfDay[1]);
         } else {
-            long hours = getUpdateInterval();
-            long startTrigger = hours;
+            long milliseconds = getUpdateInterval();
+            long startTrigger = milliseconds;
             if (now) {
                 startTrigger = TimeUnit.SECONDS.toMillis(10);
             }
-            restartUpdateIntervalAlarm(startTrigger, hours);
+            restartUpdateIntervalAlarm(startTrigger, milliseconds);
         }
     }
 
