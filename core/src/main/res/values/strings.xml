@@ -42,6 +42,7 @@
     <string name="drawer_feed_counter_new_unplayed">Number of new and unplayed episodes</string>
     <string name="drawer_feed_counter_new">Number of new episodes</string>
     <string name="drawer_feed_counter_unplayed">Number of unplayed episodes</string>
+    <string name="drawer_feed_counter_downloaded">Number of downloaded episodes</string>
     <string name="drawer_feed_counter_none">None</string>
 
     <!-- Webview actions -->
@@ -451,6 +452,7 @@
     <string name="choose_file_from_filesystem">From local filesystem</string>
     <string name="choose_file_from_external_application">Use external application</string>
     <string name="opml_export_label">OPML export</string>
+    <string name="html_export_label">HTML export</string>
     <string name="exporting_label">Exporting&#8230;</string>
     <string name="export_error_label">Export error</string>
     <string name="opml_export_success_title">OPML Export successful.</string>
@@ -482,6 +484,9 @@
         <item quantity="one">1 hour</item>
         <item quantity="other">%d hours</item>
     </plurals>
+    <string name="auto_enable_label">Auto-enable</string>
+    <string name="sleep_timer_enabled_label">Sleep timer enabled</string>
+    <string name="sleep_timer_disabled_label">Sleep timer disabled</string>
 
     <!-- gpodder.net -->
     <string name="gpodnet_taglist_header">CATEGORIES</string>
