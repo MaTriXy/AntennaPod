@@ -301,7 +301,10 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         List<MediaSessionCompat.QueueItem> queueItems = new ArrayList<>();
         try {
             for (FeedItem feedItem : taskManager.getQueue()) {
-                queueItems.add(new MediaSessionCompat.QueueItem(feedItem.getMedia().getMediaItem().getDescription(), feedItem.getId()));
+                if(feedItem.getMedia() != null) {
+                    MediaDescriptionCompat mediaDescription = feedItem.getMedia().getMediaItem().getDescription();
+                    queueItems.add(new MediaSessionCompat.QueueItem(mediaDescription, feedItem.getId()));
+                }
             }
             mediaSession.setQueue(queueItems);
         } catch (InterruptedException e) {
@@ -609,7 +612,8 @@ public class PlaybackService extends MediaBrowserServiceCompat {
                     setupNotification(newInfo);
                     started = true;
                     // set sleep timer if auto-enabled
-                    if(SleepTimerPreferences.autoEnable() && !sleepTimerActive()) {
+                    if(newInfo.oldPlayerStatus != null && newInfo.oldPlayerStatus != PlayerStatus.SEEKING &&
+                        SleepTimerPreferences.autoEnable() && !sleepTimerActive()) {
                         setSleepTimer(SleepTimerPreferences.timerMillis(), SleepTimerPreferences.shakeToReset(),
                                 SleepTimerPreferences.vibrate());
                     }
@@ -685,8 +689,9 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         }
 
         @Override
-        public void onPostPlayback(@NonNull Playable media, boolean ended, boolean playingNext) {
-            PlaybackService.this.onPostPlayback(media, ended, playingNext);
+        public void onPostPlayback(@NonNull Playable media, boolean ended, boolean skipped,
+                                   boolean playingNext) {
+            PlaybackService.this.onPostPlayback(media, ended, skipped, playingNext);
         }
 
         @Override
@@ -784,16 +789,20 @@ public class PlaybackService extends MediaBrowserServiceCompat {
      * Even though these tasks aren't supposed to be resource intensive, a good practice is to
      * usually call this method on a background thread.
      *
-     * @param playable the media object that was playing. It is assumed that its position property
-     *                 was updated before this method was called.
-     * @param ended if true, it signals that {@param playable} was played until its end.
-     *              In such case, the position property of the media becomes irrelevant for most of
-     *              the tasks (although it's still a good practice to keep it accurate).
-     * @param playingNext if true, it means another media object is being loaded in place of this one.
+     * @param playable    the media object that was playing. It is assumed that its position
+     *                    property was updated before this method was called.
+     * @param ended       if true, it signals that {@param playable} was played until its end.
+     *                    In such case, the position property of the media becomes irrelevant for
+     *                    most of the tasks (although it's still a good practice to keep it
+     *                    accurate).
+     * @param skipped     if the user pressed a skip >| button.
+     * @param playingNext if true, it means another media object is being loaded in place of this
+     *                    one.
      *                    Instances when we'd set it to false would be when we're not following the
      *                    queue or when the queue has ended.
      */
-    private void onPostPlayback(final Playable playable, boolean ended, boolean playingNext) {
+    private void onPostPlayback(final Playable playable, boolean ended, boolean skipped,
+                                boolean playingNext) {
         if (playable == null) {
             Log.e(TAG, "Cannot do post-playback processing: media was null");
             return;
@@ -824,7 +833,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
 
         if (item != null) {
             if (ended || smartMarkAsPlayed ||
-                    !UserPreferences.shouldSkipKeepEpisode()) {
+                    (skipped && !UserPreferences.shouldSkipKeepEpisode())) {
                 // only mark the item as played if we're not keeping it anyways
                 DBWriter.markItemPlayed(item, FeedItem.PLAYED, ended);
                 try {
@@ -845,7 +854,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
             }
         }
 
-        if (ended || playingNext) {
+        if (ended || skipped || playingNext) {
             DBWriter.addItemToPlaybackHistory(media);
         }
     }
@@ -1093,7 +1102,13 @@ public class PlaybackService extends MediaBrowserServiceCompat {
                 mediaSession.setSessionActivity(PendingIntent.getActivity(this, 0,
                         PlaybackService.getPlayerActivityIntent(this),
                         PendingIntent.FLAG_UPDATE_CURRENT));
-                mediaSession.setMetadata(builder.build());
+                try {
+                    mediaSession.setMetadata(builder.build());
+                }  catch (OutOfMemoryError e) {
+                    Log.e(TAG, "Setting media session metadata", e);
+                    builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, null);
+                    mediaSession.setMetadata(builder.build());
+                }
             }
         };
 
@@ -1328,7 +1343,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
 
         if (info.playable != null) {
             Intent i = new Intent(whatChanged);
-            i.putExtra("id", 1);
+            i.putExtra("id", 1L);
             i.putExtra("artist", "");
             i.putExtra("album", info.playable.getFeedTitle());
             i.putExtra("track", info.playable.getEpisodeTitle());
@@ -1337,8 +1352,8 @@ public class PlaybackService extends MediaBrowserServiceCompat {
             if (queue != null) {
                 i.putExtra("ListSize", queue.size());
             }
-            i.putExtra("duration", info.playable.getDuration());
-            i.putExtra("position", info.playable.getPosition());
+            i.putExtra("duration", (long) info.playable.getDuration());
+            i.putExtra("position", (long) info.playable.getPosition());
             sendBroadcast(i);
         }
     }

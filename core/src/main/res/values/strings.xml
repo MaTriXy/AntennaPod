@@ -60,6 +60,7 @@
     <string name="cancel_label">Cancel</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
+    <string name="reset">Reset</string>
     <string name="author_label">Author</string>
     <string name="language_label">Language</string>
     <string name="url_label">URL</string>
@@ -103,7 +104,7 @@
     <string name="etxtFeedurlHint">www.example.com/feed</string>
     <string name="txtvfeedurl_label">Add Podcast by URL</string>
     <string name="podcastdirectories_label">Find Podcast in Directory</string>
-    <string name="podcastdirectories_descr">You can search for new podcasts by name, category or popularity in the gpodder.net directory, or search the iTunes store.</string>
+    <string name="podcastdirectories_descr">For new podcasts, you can search iTunes or fyyd, or browse gpodder.net by name, category or popularity.</string>
     <string name="browse_gpoddernet_label">Browse gpodder.net</string>
 
     <!-- Actions on feeds -->
@@ -115,6 +116,7 @@
     <string name="mark_all_seen_msg">Marked all Episodes as seen</string>
     <string name="mark_all_seen_confirmation_msg">Please confirm that you want to mark all episodes as seen.</string>
     <string name="show_info_label">Show information</string>
+    <string name="rename_feed_label">Rename Podcast</string>
     <string name="remove_feed_label">Remove Podcast</string>
     <string name="share_label">Share&#8230;</string>
     <string name="share_link_label">Share Link</string>
@@ -580,6 +582,8 @@
 
     <string name="search_itunes_label">Search iTunes</string>
     <string name="filter">Filter</string>
+
+    <string name="search_fyyd_label">Search fyyd</string>
     
     <!-- Episodes apply actions -->
     <string name="all_label">All</string>
