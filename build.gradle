@@ -6,7 +6,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath "com.android.tools.build:gradle:2.2.2"
+        classpath "com.android.tools.build:gradle:2.2.3"
         classpath "me.tatarka:gradle-retrolambda:3.3.1"
         classpath "me.tatarka.retrolambda.projectlombok:lombok.ast:0.2.3.a2"
         classpath "com.github.triplet.gradle:play-publisher:1.1.4"
@@ -52,8 +52,8 @@ project.ext {
     iconifyVersion = "2.2.2"
     jsoupVersion = "1.9.2"
     materialDialogsVersion = "0.8.5.8@aar"
-    okhttpVersion = "2.7.5"
-    okioVersion = "1.9.0"
+    okhttpVersion = "3.4.2"
+    okioVersion = "1.11.0"
     recyclerviewFlexibledividerVersion = "1.2.6"
     robotiumSoloVersion = "5.6.0"
     rxAndroidVersion = "1.2.1"
