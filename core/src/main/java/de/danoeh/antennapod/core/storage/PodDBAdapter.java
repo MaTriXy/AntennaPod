@@ -1463,7 +1463,10 @@ public class PodDBAdapter {
             default: // NONE
                 return new LongIntMap(0);
         }
+        return conditionalFeedCounterRead(whereRead, feedIds);
+    }
 
+    private LongIntMap conditionalFeedCounterRead(String whereRead, long... feedIds) {
         // work around TextUtils.join wanting only boxed items
         // and StringUtils.join() causing NoSuchMethodErrors on MIUI
         StringBuilder builder = new StringBuilder();
@@ -1494,6 +1497,11 @@ public class PodDBAdapter {
         }
         c.close();
         return result;
+    }
+
+    public final LongIntMap getPlayedEpisodesCounters(long... feedIds) {
+        String whereRead = KEY_READ + "=" + FeedItem.PLAYED;
+        return conditionalFeedCounterRead(whereRead, feedIds);
     }
 
     public final int getNumberOfDownloadedEpisodes() {
@@ -1585,6 +1593,52 @@ public class PodDBAdapter {
                     KEY_TITLE + " LIKE '%"
                             + prepareSearchQuery(query) + "%'", null, null,
                     null, null
+            );
+        }
+    }
+
+    public Cursor searchItemAuthors(long feedID, String query) {
+        if (feedID != 0) {
+            // search items in specific feed
+            return db.rawQuery("SELECT " + TextUtils.join(", ", FEEDITEM_SEL_FI_SMALL) + " FROM " + TABLE_NAME_FEED_ITEMS
+                    + " JOIN " + TABLE_NAME_FEEDS + " ON " + TABLE_NAME_FEED_ITEMS+"."+KEY_FEED+"="+TABLE_NAME_FEEDS+"."+KEY_ID
+                    + " WHERE " + KEY_FEED
+                            + "=? AND " + KEY_AUTHOR + " LIKE '%"
+                            + prepareSearchQuery(query) + "%' ORDER BY "
+                            + TABLE_NAME_FEED_ITEMS + "." + KEY_PUBDATE + " DESC",
+                    new String[]{String.valueOf(feedID)}
+            );
+        } else {
+            // search through all items
+            return db.rawQuery("SELECT " + TextUtils.join(", ", FEEDITEM_SEL_FI_SMALL) + " FROM " + TABLE_NAME_FEED_ITEMS
+                            + " JOIN " + TABLE_NAME_FEEDS + " ON " + TABLE_NAME_FEED_ITEMS+"."+KEY_FEED+"="+TABLE_NAME_FEEDS+"."+KEY_ID
+                            + " WHERE " + KEY_AUTHOR + " LIKE '%"
+                            + prepareSearchQuery(query) + "%' ORDER BY "
+                            + TABLE_NAME_FEED_ITEMS + "." + KEY_PUBDATE + " DESC",
+                    null
+            );
+        }
+    }
+
+    public Cursor searchItemFeedIdentifiers(long feedID, String query) {
+        if (feedID != 0) {
+            // search items in specific feed
+            return db.rawQuery("SELECT " + TextUtils.join(", ", FEEDITEM_SEL_FI_SMALL) + " FROM " + TABLE_NAME_FEED_ITEMS
+                            + " JOIN " + TABLE_NAME_FEEDS + " ON " + TABLE_NAME_FEED_ITEMS+"."+KEY_FEED+"="+TABLE_NAME_FEEDS+"."+KEY_ID
+                            + " WHERE " + KEY_FEED
+                            + "=? AND " + KEY_FEED_IDENTIFIER + " LIKE '%"
+                            + prepareSearchQuery(query) + "%' ORDER BY "
+                            + TABLE_NAME_FEED_ITEMS + "." + KEY_PUBDATE + " DESC",
+                    new String[]{String.valueOf(feedID)}
+            );
+        } else {
+            // search through all items
+            return db.rawQuery("SELECT " + TextUtils.join(", ", FEEDITEM_SEL_FI_SMALL) + " FROM " + TABLE_NAME_FEED_ITEMS
+                            + " JOIN " + TABLE_NAME_FEEDS + " ON " + TABLE_NAME_FEED_ITEMS+"."+KEY_FEED+"="+TABLE_NAME_FEEDS+"."+KEY_ID
+                            + " WHERE " + KEY_FEED_IDENTIFIER + " LIKE '%"
+                            + prepareSearchQuery(query) + "%' ORDER BY "
+                            + TABLE_NAME_FEED_ITEMS + "." + KEY_PUBDATE + " DESC",
+                    null
             );
         }
     }
