@@ -3,10 +3,20 @@ import org.apache.tools.ant.filters.ReplaceTokens
 apply plugin: "com.android.application"
 apply plugin: "me.tatarka.retrolambda"
 apply plugin: 'com.github.triplet.play'
+apply plugin: 'com.getkeepsafe.dexcount'
 
 repositories {
     maven { url "https://jitpack.io" }
     mavenCentral()
+}
+
+buildscript {
+    repositories {
+       jcenter()
+    }
+    dependencies {
+        classpath 'com.getkeepsafe.dexcount:dexcount-gradle-plugin:0.8.1'
+    }
 }
 
 def getMyVersionName() {
@@ -30,6 +40,7 @@ android {
     defaultConfig {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
+        multiDexEnabled true
         versionCode getMyVersionCode()
         versionName "${getMyVersionName()}"
         testApplicationId "de.test.antennapod"
@@ -71,6 +82,7 @@ android {
 
         debug {
             applicationIdSuffix ".debug"
+            resValue "string", "provider_authority", "de.danoeh.antennapod.debug.provider"
             buildConfigField STRING, FLATTR_APP_KEY, mFlattrAppKey
             buildConfigField STRING, FLATTR_APP_SECRET, mFlattrAppSecret
         }
@@ -153,7 +165,7 @@ dependencies {
     compile "com.artemzin.rxjava:proguard-rules:$rxJavaRulesVersion"
     compile "com.joanzapata.iconify:android-iconify-fontawesome:$iconifyVersion"
     compile "com.joanzapata.iconify:android-iconify-material:$iconifyVersion"
-    compile("com.github.afollestad.material-dialogs:commons:$materialDialogsVersion") {
+    compile("com.afollestad.material-dialogs:commons:$materialDialogsVersion") {
         transitive = true
     }
     compile "com.yqritc:recyclerview-flexibledivider:$recyclerviewFlexibledividerVersion"
@@ -165,7 +177,7 @@ dependencies {
 
     compile "com.github.AntennaPod:AntennaPod-AudioPlayer:$audioPlayerVersion"
 
-    compile 'com.github.mfietz:fyydlin:v0.1'
+    compile 'com.github.mfietz:fyydlin:v0.3'
 }
 
 play {
@@ -179,7 +191,7 @@ task filterAbout {
     inputs.files files(["src/main/templates/about.html",
                         "src/main/AndroidManifest.xml"])
     outputs.file "src/main/assets/about.html"
-} << {
+} doLast {
     copy {
         from "src/main/templates/about.html"
         into "src/main/assets"

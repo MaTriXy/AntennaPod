@@ -5,6 +5,7 @@ import java.io.IOException;
 
 import de.danoeh.antennapod.core.util.FileNameGenerator;
 import android.test.AndroidTestCase;
+import android.text.TextUtils;
 
 public class FilenameGeneratorTest extends AndroidTestCase {
 
@@ -32,6 +33,21 @@ public class FilenameGeneratorTest extends AndroidTestCase {
 		String result = FileNameGenerator.generateFileName(INVALID2);
 		assertEquals(result, VALID1);
 		createFiles(result);
+	}
+
+	public void testFeedTitleContainsApostrophe() {
+		String result = FileNameGenerator.generateFileName("Feed's Title ...");
+		assertEquals("Feeds Title", result);
+	}
+
+	public void testFeedTitleContainsDash() {
+		String result = FileNameGenerator.generateFileName("Left - Right");
+		assertEquals("Left - Right", result);
+	}
+
+	public void testInvalidInput() {
+		String result = FileNameGenerator.generateFileName("???");
+		assertTrue(!TextUtils.isEmpty(result));
 	}
 
 	/**
