@@ -22,12 +22,12 @@ import java.util.List;
 
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.activity.MainActivity;
+import de.danoeh.antennapod.core.event.QueueEvent;
 import de.danoeh.antennapod.core.feed.EventDistributor;
 import de.danoeh.antennapod.core.feed.Feed;
 import de.danoeh.antennapod.core.feed.FeedImage;
 import de.danoeh.antennapod.core.feed.FeedItem;
 import de.danoeh.antennapod.core.feed.FeedMedia;
-import de.danoeh.antennapod.core.event.QueueEvent;
 import de.danoeh.antennapod.core.storage.PodDBAdapter;
 import de.danoeh.antennapod.core.util.playback.PlaybackController;
 import de.danoeh.antennapod.fragment.ExternalPlayerFragment;
@@ -39,7 +39,6 @@ import de.test.antennapod.util.syndication.feedgenerator.RSS2Generator;
  * Utility methods for UI tests.
  * Starts a web server that hosts feeds, episodes and images.
  */
-@TargetApi(Build.VERSION_CODES.HONEYCOMB)
 public class UITestUtils {
 
     private static final String TAG = UITestUtils.class.getSimpleName();
@@ -49,7 +48,6 @@ public class UITestUtils {
     public static final int NUM_FEEDS = 5;
     public static final int NUM_ITEMS_PER_FEED = 10;
 
-    public static final int HOME_VIEW = (Build.VERSION.SDK_INT >= 11) ? android.R.id.home : R.id.home;
     public static final String TEST_FILE_NAME = "3sec.mp3";
 
 
