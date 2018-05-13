@@ -16,30 +16,43 @@ import android.net.Uri;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
 import android.os.Build;
-import android.preference.CheckBoxPreference;
-import android.preference.EditTextPreference;
-import android.preference.ListPreference;
-import android.preference.Preference;
-import android.preference.PreferenceManager;
-import android.preference.PreferenceScreen;
+import android.os.Bundle;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AlertDialog;
-import android.text.Editable;
+import android.support.v7.app.AppCompatActivity;
+import android.support.v7.preference.CheckBoxPreference;
+import android.support.v7.preference.ListPreference;
+import android.support.v7.preference.Preference;
+import android.support.v7.preference.PreferenceFragmentCompat;
+import android.support.v7.preference.PreferenceManager;
+import android.support.v7.preference.PreferenceScreen;
 import android.text.Html;
-import android.text.TextWatcher;
 import android.text.format.DateFormat;
 import android.text.format.DateUtils;
 import android.util.Log;
-import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.Toast;
 
 import com.afollestad.materialdialogs.MaterialDialog;
 
+import com.bytehamster.lib.preferencesearch.SearchPreference;
+import de.danoeh.antennapod.activity.AboutActivity;
 import de.danoeh.antennapod.activity.ImportExportActivity;
+import de.danoeh.antennapod.activity.MediaplayerActivity;
 import de.danoeh.antennapod.activity.OpmlImportFromPathActivity;
+import de.danoeh.antennapod.activity.PreferenceActivity;
+import de.danoeh.antennapod.activity.StatisticsActivity;
+import de.danoeh.antennapod.core.export.html.HtmlWriter;
+import de.danoeh.antennapod.core.export.opml.OpmlWriter;
+import de.danoeh.antennapod.core.service.GpodnetSyncService;
+import de.danoeh.antennapod.dialog.AuthenticationDialog;
+import de.danoeh.antennapod.dialog.AutoFlattrPreferenceDialog;
+import de.danoeh.antennapod.dialog.GpodnetSetHostnameDialog;
+import de.danoeh.antennapod.dialog.ProxyDialog;
+import de.danoeh.antennapod.dialog.VariableSpeedDialog;
+import de.danoeh.antennapod.core.util.gui.PictureInPictureUtil;
 import org.apache.commons.lang3.ArrayUtils;
 
 import java.io.File;
@@ -53,29 +66,20 @@ import java.util.concurrent.TimeUnit;
 
 import de.danoeh.antennapod.CrashReportWriter;
 import de.danoeh.antennapod.R;
-import de.danoeh.antennapod.activity.AboutActivity;
 import de.danoeh.antennapod.activity.DirectoryChooserActivity;
 import de.danoeh.antennapod.activity.MainActivity;
-import de.danoeh.antennapod.activity.MediaplayerActivity;
-import de.danoeh.antennapod.activity.StatisticsActivity;
 import de.danoeh.antennapod.asynctask.ExportWorker;
 import de.danoeh.antennapod.core.export.ExportWriter;
-import de.danoeh.antennapod.core.export.html.HtmlWriter;
-import de.danoeh.antennapod.core.export.opml.OpmlWriter;
 import de.danoeh.antennapod.core.preferences.GpodnetPreferences;
 import de.danoeh.antennapod.core.preferences.UserPreferences;
-import de.danoeh.antennapod.core.service.GpodnetSyncService;
 import de.danoeh.antennapod.core.util.flattr.FlattrUtils;
-import de.danoeh.antennapod.dialog.AuthenticationDialog;
-import de.danoeh.antennapod.dialog.AutoFlattrPreferenceDialog;
 import de.danoeh.antennapod.dialog.ChooseDataFolderDialog;
-import de.danoeh.antennapod.dialog.GpodnetSetHostnameDialog;
-import de.danoeh.antennapod.dialog.ProxyDialog;
-import de.danoeh.antennapod.dialog.VariableSpeedDialog;
 import rx.Observable;
 import rx.Subscription;
 import rx.android.schedulers.AndroidSchedulers;
 import rx.schedulers.Schedulers;
+
+import static de.danoeh.antennapod.activity.PreferenceActivity.PARAM_RESOURCE;
 
 /**
  * Sets up a preference UI that lets the user change user preferences.
@@ -85,7 +89,15 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
 
     private static final String TAG = "PreferenceController";
 
-    private static final String PREF_FLATTR_SETTINGS = "prefFlattrSettings";
+    private static final String PREF_SCREEN_USER_INTERFACE = "prefScreenInterface";
+    private static final String PREF_SCREEN_PLAYBACK = "prefScreenPlayback";
+    private static final String PREF_SCREEN_NETWORK = "prefScreenNetwork";
+    private static final String PREF_SCREEN_INTEGRATIONS = "prefScreenIntegrations";
+    private static final String PREF_SCREEN_STORAGE = "prefScreenStorage";
+    private static final String PREF_SCREEN_AUTODL = "prefAutoDownloadSettings";
+    private static final String PREF_SCREEN_FLATTR = "prefFlattrSettings";
+    private static final String PREF_SCREEN_GPODDER = "prefGpodderSettings";
+
     private static final String PREF_FLATTR_AUTH = "pref_flattr_authenticate";
     private static final String PREF_FLATTR_REVOKE = "prefRevokeAccess";
     private static final String PREF_AUTO_FLATTR_PREFS = "prefAutoFlattrPrefs";
@@ -96,7 +108,6 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
     private static final String IMPORT_EXPORT = "importExport";
     private static final String PREF_ABOUT = "prefAbout";
     private static final String PREF_CHOOSE_DATA_DIR = "prefChooseDataDir";
-    private static final String AUTO_DL_PREF_SCREEN = "prefAutoDownloadSettings";
     private static final String PREF_PLAYBACK_SPEED_LAUNCHER = "prefPlaybackSpeedLauncher";
     private static final String PREF_PLAYBACK_REWIND_DELTA_LAUNCHER = "prefPlaybackRewindDeltaLauncher";
     private static final String PREF_PLAYBACK_FAST_FORWARD_DELTA_LAUNCHER = "prefPlaybackFastForwardDeltaLauncher";
@@ -143,7 +154,46 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
         }
     }
 
-    public void onCreate() {
+
+
+    public void onCreate(int screen) {
+        switch (screen) {
+            case R.xml.preferences:
+                setupMainScreen();
+                break;
+            case R.xml.preferences_network:
+                setupNetworkScreen();
+                break;
+            case R.xml.preferences_autodownload:
+                setupAutoDownloadScreen();
+                buildAutodownloadSelectedNetworsPreference();
+                setSelectedNetworksEnabled(UserPreferences.isEnableAutodownloadWifiFilter());
+                buildEpisodeCleanupPreference();
+                break;
+            case R.xml.preferences_playback:
+                setupPlaybackScreen();
+                PreferenceControllerFlavorHelper.setupFlavoredUI(ui);
+                buildSmartMarkAsPlayedPreference();
+                break;
+            case R.xml.preferences_integrations:
+                setupIntegrationsScreen();
+                break;
+            case R.xml.preferences_flattr:
+                setupFlattrScreen();
+                break;
+            case R.xml.preferences_gpodder:
+                setupGpodderScreen();
+                break;
+            case R.xml.preferences_storage:
+                setupStorageScreen();
+                break;
+            case R.xml.preferences_user_interface:
+                setupInterfaceScreen();
+                break;
+        }
+    }
+
+    private void setupInterfaceScreen() {
         final Activity activity = ui.getActivity();
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN) {
@@ -158,25 +208,34 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
                     }
             );
         }
-        ui.findPreference(PreferenceController.PREF_FLATTR_REVOKE).setOnPreferenceClickListener(
-                preference -> {
-                    FlattrUtils.revokeAccessToken(activity);
-                    checkItemVisibility();
+        ui.findPreference(UserPreferences.PREF_THEME)
+                .setOnPreferenceChangeListener(
+                        (preference, newValue) -> {
+                            Intent i = new Intent(activity, MainActivity.class);
+                            i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                    | Intent.FLAG_ACTIVITY_NEW_TASK);
+                            activity.finish();
+                            activity.startActivity(i);
+                            return true;
+                        }
+                );
+        ui.findPreference(UserPreferences.PREF_HIDDEN_DRAWER_ITEMS)
+                .setOnPreferenceClickListener(preference -> {
+                    showDrawerPreferencesDialog();
                     return true;
-                }
-        );
-        ui.findPreference(PreferenceController.PREF_ABOUT).setOnPreferenceClickListener(
-                preference -> {
-                    activity.startActivity(new Intent(activity, AboutActivity.class));
+                });
+
+        ui.findPreference(UserPreferences.PREF_COMPACT_NOTIFICATION_BUTTONS)
+                .setOnPreferenceClickListener(preference -> {
+                    showNotificationButtonsDialog();
                     return true;
-                }
-        );
-        ui.findPreference(PreferenceController.STATISTICS).setOnPreferenceClickListener(
-                preference -> {
-                    activity.startActivity(new Intent(activity, StatisticsActivity.class));
-                    return true;
-                }
-        );
+                });
+
+    }
+
+    private void setupStorageScreen() {
+        final Activity activity = ui.getActivity();
+
         ui.findPreference(PreferenceController.IMPORT_EXPORT).setOnPreferenceClickListener(
                 preference -> {
                     activity.startActivity(new Intent(activity, ImportExportActivity.class));
@@ -225,126 +284,70 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
                             return true;
                         }
                 );
-        ui.findPreference(UserPreferences.PREF_THEME)
-                .setOnPreferenceChangeListener(
-                        (preference, newValue) -> {
-                            Intent i = new Intent(activity, MainActivity.class);
-                            i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK
-                                    | Intent.FLAG_ACTIVITY_NEW_TASK);
-                            activity.finish();
-                            activity.startActivity(i);
-                            return true;
+        ui.findPreference(UserPreferences.PREF_IMAGE_CACHE_SIZE).setOnPreferenceChangeListener(
+                (preference, o) -> {
+                    if (o instanceof String) {
+                        int newValue = Integer.parseInt((String) o) * 1024 * 1024;
+                        if (newValue != UserPreferences.getImageCacheSize()) {
+                            AlertDialog.Builder dialog = new AlertDialog.Builder(ui.getActivity());
+                            dialog.setTitle(android.R.string.dialog_alert_title);
+                            dialog.setMessage(R.string.pref_restart_required);
+                            dialog.setPositiveButton(android.R.string.ok, null);
+                            dialog.show();
                         }
-                );
-        ui.findPreference(UserPreferences.PREF_HIDDEN_DRAWER_ITEMS)
-                .setOnPreferenceClickListener(preference -> {
-                    showDrawerPreferencesDialog();
-                    return true;
-                });
-
-        ui.findPreference(UserPreferences.PREF_COMPACT_NOTIFICATION_BUTTONS)
-                .setOnPreferenceClickListener(preference -> {
-                    showNotificationButtonsDialog();
-                    return true;
-                });
-
-        ui.findPreference(UserPreferences.PREF_UPDATE_INTERVAL)
-                .setOnPreferenceClickListener(preference -> {
-                    showUpdateIntervalTimePreferencesDialog();
-                    return true;
-                });
-
-        ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL).setOnPreferenceChangeListener(
-                (preference, newValue) -> {
-                    if (newValue instanceof Boolean) {
-                        boolean enabled = (Boolean) newValue;
-                        ui.findPreference(UserPreferences.PREF_EPISODE_CACHE_SIZE).setEnabled(enabled);
-                        ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL_ON_BATTERY).setEnabled(enabled);
-                        ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL_WIFI_FILTER).setEnabled(enabled);
-                        setSelectedNetworksEnabled(enabled && UserPreferences.isEnableAutodownloadWifiFilter());
+                        return true;
                     }
-                    return true;
-                });
-        ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL_WIFI_FILTER)
-                .setOnPreferenceChangeListener(
-                        (preference, newValue) -> {
-                            if (newValue instanceof Boolean) {
-                                setSelectedNetworksEnabled((Boolean) newValue);
-                                return true;
-                            } else {
-                                return false;
-                            }
-                        }
-                );
-        ui.findPreference(UserPreferences.PREF_PARALLEL_DOWNLOADS)
-                .setOnPreferenceChangeListener(
-                        (preference, o) -> {
-                            if (o instanceof String) {
-                                try {
-                                    int value = Integer.parseInt((String) o);
-                                    if (1 <= value && value <= 50) {
-                                        setParallelDownloadsText(value);
-                                        return true;
-                                    }
-                                } catch (NumberFormatException e) {
-                                    return false;
-                                }
-                            }
-                            return false;
-                        }
-                );
-        // validate and set correct value: number of downloads between 1 and 50 (inclusive)
-        final EditText ev = ((EditTextPreference) ui.findPreference(UserPreferences.PREF_PARALLEL_DOWNLOADS)).getEditText();
-        ev.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                if (s.length() > 0) {
-                    try {
-                        int value = Integer.parseInt(s.toString());
-                        if (value <= 0) {
-                            ev.setText("1");
-                        } else if (value > 50) {
-                            ev.setText("50");
-                        }
-                    } catch (NumberFormatException e) {
-                        ev.setText("6");
-                    }
-                    ev.setSelection(ev.getText().length());
+                    return false;
                 }
-            }
+        );
+    }
+
+    private void setupIntegrationsScreen() {
+        final AppCompatActivity activity = ui.getActivity();
+
+        ui.findPreference(PREF_SCREEN_FLATTR).setOnPreferenceClickListener(preference -> {
+            openScreen(R.xml.preferences_flattr, activity);
+            return true;
         });
-        ui.findPreference(UserPreferences.PREF_EPISODE_CACHE_SIZE)
-                .setOnPreferenceChangeListener(
-                        (preference, o) -> {
-                            if (o instanceof String) {
-                                setEpisodeCacheSizeText(UserPreferences.readEpisodeCacheSize((String) o));
-                            }
-                            return true;
-                        }
-                );
-        ui.findPreference(PreferenceController.PREF_PLAYBACK_SPEED_LAUNCHER)
+        ui.findPreference(PREF_SCREEN_GPODDER).setOnPreferenceClickListener(preference -> {
+            openScreen(R.xml.preferences_gpodder, activity);
+            return true;
+        });
+    }
+
+    private void setupFlattrScreen() {
+        final AppCompatActivity activity = ui.getActivity();
+
+        ui.findPreference(PreferenceController.PREF_FLATTR_REVOKE).setOnPreferenceClickListener(
+                preference -> {
+                    FlattrUtils.revokeAccessToken(activity);
+                    checkFlattrItemVisibility();
+                    return true;
+                }
+        );
+
+        ui.findPreference(PreferenceController.PREF_AUTO_FLATTR_PREFS)
                 .setOnPreferenceClickListener(preference -> {
-                    VariableSpeedDialog.showDialog(activity);
+                    AutoFlattrPreferenceDialog.newAutoFlattrPreferenceDialog(activity,
+                            new AutoFlattrPreferenceDialog.AutoFlattrPreferenceDialogInterface() {
+                                @Override
+                                public void onCancelled() {
+
+                                }
+
+                                @Override
+                                public void onConfirmed(boolean autoFlattrEnabled, float autoFlattrValue) {
+                                    UserPreferences.setAutoFlattrSettings(autoFlattrEnabled, autoFlattrValue);
+                                    checkFlattrItemVisibility();
+                                }
+                            });
                     return true;
                 });
-        ui.findPreference(PreferenceController.PREF_PLAYBACK_REWIND_DELTA_LAUNCHER)
-                .setOnPreferenceClickListener(preference -> {
-                    MediaplayerActivity.showSkipPreference(activity, MediaplayerActivity.SkipDirection.SKIP_REWIND);
-                    return true;
-                });
-        ui.findPreference(PreferenceController.PREF_PLAYBACK_FAST_FORWARD_DELTA_LAUNCHER)
-                .setOnPreferenceClickListener(preference -> {
-                    MediaplayerActivity.showSkipPreference(activity, MediaplayerActivity.SkipDirection.SKIP_FORWARD);
-                    return true;
-                });
+    }
+
+    private void setupGpodderScreen() {
+        final AppCompatActivity activity = ui.getActivity();
+
         ui.findPreference(PreferenceController.PREF_GPODNET_SETLOGIN_INFORMATION)
                 .setOnPreferenceClickListener(preference -> {
                     AuthenticationDialog dialog = new AuthenticationDialog(activity,
@@ -392,45 +395,135 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
                     GpodnetSetHostnameDialog.createDialog(activity).setOnDismissListener(dialog -> updateGpodnetPreferenceScreen());
                     return true;
                 });
+    }
 
-        ui.findPreference(PreferenceController.PREF_AUTO_FLATTR_PREFS)
+    private void setupPlaybackScreen() {
+        final Activity activity = ui.getActivity();
+
+        ui.findPreference(PreferenceController.PREF_PLAYBACK_SPEED_LAUNCHER)
                 .setOnPreferenceClickListener(preference -> {
-                    AutoFlattrPreferenceDialog.newAutoFlattrPreferenceDialog(activity,
-                            new AutoFlattrPreferenceDialog.AutoFlattrPreferenceDialogInterface() {
-                                @Override
-                                public void onCancelled() {
-
-                                }
-
-                                @Override
-                                public void onConfirmed(boolean autoFlattrEnabled, float autoFlattrValue) {
-                                    UserPreferences.setAutoFlattrSettings(autoFlattrEnabled, autoFlattrValue);
-                                    checkItemVisibility();
-                                }
-                            });
+                    VariableSpeedDialog.showDialog(activity);
                     return true;
                 });
-        ui.findPreference(UserPreferences.PREF_IMAGE_CACHE_SIZE).setOnPreferenceChangeListener(
-                (preference, o) -> {
-                    if (o instanceof String) {
-                        int newValue = Integer.parseInt((String) o) * 1024 * 1024;
-                        if (newValue != UserPreferences.getImageCacheSize()) {
-                            AlertDialog.Builder dialog = new AlertDialog.Builder(ui.getActivity());
-                            dialog.setTitle(android.R.string.dialog_alert_title);
-                            dialog.setMessage(R.string.pref_restart_required);
-                            dialog.setPositiveButton(android.R.string.ok, null);
-                            dialog.show();
-                        }
-                        return true;
+        ui.findPreference(PreferenceController.PREF_PLAYBACK_REWIND_DELTA_LAUNCHER)
+                .setOnPreferenceClickListener(preference -> {
+                    MediaplayerActivity.showSkipPreference(activity, MediaplayerActivity.SkipDirection.SKIP_REWIND);
+                    return true;
+                });
+        ui.findPreference(PreferenceController.PREF_PLAYBACK_FAST_FORWARD_DELTA_LAUNCHER)
+                .setOnPreferenceClickListener(preference -> {
+                    MediaplayerActivity.showSkipPreference(activity, MediaplayerActivity.SkipDirection.SKIP_FORWARD);
+                    return true;
+                });
+        if (!PictureInPictureUtil.supportsPictureInPicture(activity)) {
+            ListPreference behaviour = (ListPreference) ui.findPreference(UserPreferences.PREF_VIDEO_BEHAVIOR);
+            behaviour.setEntries(R.array.video_background_behavior_options_without_pip);
+            behaviour.setEntryValues(R.array.video_background_behavior_values_without_pip);
+        }
+    }
+
+    private void setupAutoDownloadScreen() {
+        ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL).setOnPreferenceChangeListener(
+                (preference, newValue) -> {
+                    if (newValue instanceof Boolean) {
+                        checkAutodownloadItemVisibility((Boolean) newValue);
                     }
-                    return false;
-                }
-        );
+                    return true;
+                });
+        ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL_WIFI_FILTER)
+                .setOnPreferenceChangeListener(
+                        (preference, newValue) -> {
+                            if (newValue instanceof Boolean) {
+                                setSelectedNetworksEnabled((Boolean) newValue);
+                                return true;
+                            } else {
+                                return false;
+                            }
+                        }
+                );
+        ui.findPreference(UserPreferences.PREF_EPISODE_CACHE_SIZE)
+                .setOnPreferenceChangeListener(
+                        (preference, o) -> {
+                            if (o instanceof String) {
+                                setEpisodeCacheSizeText(UserPreferences.readEpisodeCacheSize((String) o));
+                            }
+                            return true;
+                        }
+                );
+    }
+
+    private void setupNetworkScreen() {
+        final AppCompatActivity activity = ui.getActivity();
+        ui.findPreference(PREF_SCREEN_AUTODL).setOnPreferenceClickListener(preference -> {
+            openScreen(R.xml.preferences_autodownload, activity);
+            return true;
+        });
+        ui.findPreference(UserPreferences.PREF_UPDATE_INTERVAL)
+                .setOnPreferenceClickListener(preference -> {
+                    showUpdateIntervalTimePreferencesDialog();
+                    return true;
+                });
+        ui.findPreference(UserPreferences.PREF_PARALLEL_DOWNLOADS)
+                .setOnPreferenceChangeListener(
+                        (preference, o) -> {
+                            if (o instanceof String) {
+                                try {
+                                    int value = Integer.parseInt((String) o);
+                                    if (1 <= value && value <= 50) {
+                                        setParallelDownloadsText(value);
+                                        return true;
+                                    }
+                                } catch (NumberFormatException e) {
+                                    return false;
+                                }
+                            }
+                            return false;
+                        }
+                );
+        // validate and set correct value: number of downloads between 1 and 50 (inclusive)
         ui.findPreference(PREF_PROXY).setOnPreferenceClickListener(preference -> {
             ProxyDialog dialog = new ProxyDialog(ui.getActivity());
             dialog.createDialog().show();
             return true;
         });
+    }
+
+    private void setupMainScreen() {
+        final AppCompatActivity activity = ui.getActivity();
+        setupSearch();
+        ui.findPreference(PREF_SCREEN_USER_INTERFACE).setOnPreferenceClickListener(preference -> {
+            openScreen(R.xml.preferences_user_interface, activity);
+            return true;
+        });
+        ui.findPreference(PREF_SCREEN_PLAYBACK).setOnPreferenceClickListener(preference -> {
+            openScreen(R.xml.preferences_playback, activity);
+            return true;
+        });
+        ui.findPreference(PREF_SCREEN_NETWORK).setOnPreferenceClickListener(preference -> {
+            openScreen(R.xml.preferences_network, activity);
+            return true;
+        });
+        ui.findPreference(PREF_SCREEN_INTEGRATIONS).setOnPreferenceClickListener(preference -> {
+            openScreen(R.xml.preferences_integrations, activity);
+            return true;
+        });
+        ui.findPreference(PREF_SCREEN_STORAGE).setOnPreferenceClickListener(preference -> {
+            openScreen(R.xml.preferences_storage, activity);
+            return true;
+        });
+
+        ui.findPreference(PreferenceController.PREF_ABOUT).setOnPreferenceClickListener(
+                preference -> {
+                    activity.startActivity(new Intent(activity, AboutActivity.class));
+                    return true;
+                }
+        );
+        ui.findPreference(PreferenceController.STATISTICS).setOnPreferenceClickListener(
+                preference -> {
+                    activity.startActivity(new Intent(activity, StatisticsActivity.class));
+                    return true;
+                }
+        );
         ui.findPreference(PREF_KNOWN_ISSUES).setOnPreferenceClickListener(preference -> {
             openInBrowser("https://github.com/AntennaPod/AntennaPod/labels/bug");
             return true;
@@ -462,11 +555,75 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
             ui.getActivity().startActivity(Intent.createChooser(emailIntent, intentTitle));
             return true;
         });
-        PreferenceControllerFlavorHelper.setupFlavoredUI(ui);
-        buildEpisodeCleanupPreference();
-        buildSmartMarkAsPlayedPreference();
-        buildAutodownloadSelectedNetworsPreference();
-        setSelectedNetworksEnabled(UserPreferences.isEnableAutodownloadWifiFilter());
+    }
+
+    private void setupSearch() {
+        final AppCompatActivity activity = ui.getActivity();
+
+        SearchPreference searchPreference = (SearchPreference) ui.findPreference("searchPreference");
+        searchPreference.setActivity(activity);
+        searchPreference.setFragmentContainerViewId(R.id.content);
+        searchPreference.setBreadcrumbsEnabled(true);
+
+        searchPreference.index()
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_user_interface))
+                .addFile(R.xml.preferences_user_interface);
+        searchPreference.index()
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_playback))
+                .addFile(R.xml.preferences_playback);
+        searchPreference.index()
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_network))
+                .addFile(R.xml.preferences_network);
+        searchPreference.index()
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_storage))
+                .addFile(R.xml.preferences_storage);
+        searchPreference.index()
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_network))
+                .addBreadcrumb(R.string.automation)
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_autodownload))
+                .addFile(R.xml.preferences_autodownload);
+        searchPreference.index()
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_integrations))
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_gpodder))
+                .addFile(R.xml.preferences_gpodder);
+        searchPreference.index()
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_integrations))
+                .addBreadcrumb(getTitleOfPage(R.xml.preferences_flattr))
+                .addFile(R.xml.preferences_flattr);
+    }
+
+    public PreferenceFragmentCompat openScreen(int preferences, AppCompatActivity activity) {
+        PreferenceFragmentCompat prefFragment = new PreferenceActivity.MainFragment();
+        Bundle args = new Bundle();
+        args.putInt(PARAM_RESOURCE, preferences);
+        prefFragment.setArguments(args);
+        activity.getSupportFragmentManager().beginTransaction()
+                .replace(R.id.content, prefFragment)
+                .addToBackStack(TAG).commit();
+        return prefFragment;
+    }
+
+    public static int getTitleOfPage(int preferences) {
+        switch (preferences) {
+            case R.xml.preferences_network:
+                return R.string.network_pref;
+            case R.xml.preferences_autodownload:
+                return R.string.pref_automatic_download_title;
+            case R.xml.preferences_playback:
+                return R.string.playback_pref;
+            case R.xml.preferences_storage:
+                return R.string.storage_pref;
+            case R.xml.preferences_user_interface:
+                return R.string.user_interface_label;
+            case R.xml.preferences_integrations:
+                return R.string.integrations_label;
+            case R.xml.preferences_flattr:
+                return R.string.flattr_label;
+            case R.xml.preferences_gpodder:
+                return R.string.gpodnet_main_label;
+            default:
+                return R.string.settings_label;
+        }
     }
 
     private boolean export(ExportWriter exportWriter) {
@@ -522,22 +679,41 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
         }
     }
 
-    public void onResume() {
-        checkItemVisibility();
-        setUpdateIntervalText();
-        setParallelDownloadsText(UserPreferences.getParallelDownloads());
-        setEpisodeCacheSizeText(UserPreferences.getEpisodeCacheSize());
-        setDataFolderText();
-        GpodnetPreferences.registerOnSharedPreferenceChangeListener(gpoddernetListener);
-        updateGpodnetPreferenceScreen();
+    public void onResume(int screen) {
+        switch (screen) {
+            case R.xml.preferences_network:
+                setUpdateIntervalText();
+                setParallelDownloadsText(UserPreferences.getParallelDownloads());
+                break;
+            case R.xml.preferences_autodownload:
+                setEpisodeCacheSizeText(UserPreferences.getEpisodeCacheSize());
+                checkAutodownloadItemVisibility(UserPreferences.isEnableAutodownload());
+                break;
+            case R.xml.preferences_storage:
+                setDataFolderText();
+                break;
+            case R.xml.preferences_integrations:
+                setIntegrationsItemVisibility();
+                return;
+            case R.xml.preferences_flattr:
+                checkFlattrItemVisibility();
+                break;
+            case R.xml.preferences_gpodder:
+                GpodnetPreferences.registerOnSharedPreferenceChangeListener(gpoddernetListener);
+                updateGpodnetPreferenceScreen();
+                break;
+            case R.xml.preferences_playback:
+                checkSonicItemVisibility();
+                break;
+        }
     }
 
-    public void onPause() {
+    public void unregisterGpodnet() {
         GpodnetPreferences.unregisterOnSharedPreferenceChangeListener(gpoddernetListener);
     }
 
-    public void onStop() {
-        if(subscription != null) {
+    public void unsubscribeExportSubscription() {
+        if (subscription != null) {
             subscription.unsubscribe();
         }
     }
@@ -691,22 +867,28 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
         }
     }
 
+    private void setIntegrationsItemVisibility() {
+        ui.findPreference(PreferenceController.PREF_SCREEN_FLATTR).setEnabled(FlattrUtils.hasAPICredentials());
+    }
+
     @SuppressWarnings("deprecation")
-    private void checkItemVisibility() {
+    private void checkFlattrItemVisibility() {
         boolean hasFlattrToken = FlattrUtils.hasToken();
-        ui.findPreference(PreferenceController.PREF_FLATTR_SETTINGS).setEnabled(FlattrUtils.hasAPICredentials());
         ui.findPreference(PreferenceController.PREF_FLATTR_AUTH).setEnabled(!hasFlattrToken);
         ui.findPreference(PreferenceController.PREF_FLATTR_REVOKE).setEnabled(hasFlattrToken);
         ui.findPreference(PreferenceController.PREF_AUTO_FLATTR_PREFS).setEnabled(hasFlattrToken);
+    }
 
-        boolean autoDownload = UserPreferences.isEnableAutodownload();
+    private void checkAutodownloadItemVisibility(boolean autoDownload) {
         ui.findPreference(UserPreferences.PREF_EPISODE_CACHE_SIZE).setEnabled(autoDownload);
         ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL_ON_BATTERY).setEnabled(autoDownload);
         ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL_WIFI_FILTER).setEnabled(autoDownload);
+        ui.findPreference(UserPreferences.PREF_EPISODE_CLEANUP).setEnabled(autoDownload);
+        ui.findPreference(UserPreferences.PREF_ENABLE_AUTODL_ON_MOBILE).setEnabled(autoDownload);
         setSelectedNetworksEnabled(autoDownload && UserPreferences.isEnableAutodownloadWifiFilter());
+    }
 
-        ui.findPreference(PREF_SEND_CRASH_REPORT).setEnabled(CrashReportWriter.getFile().exists());
-
+    private void checkSonicItemVisibility() {
         if (Build.VERSION.SDK_INT >= 16) {
             ui.findPreference(UserPreferences.PREF_SONIC).setEnabled(true);
         } else {
@@ -794,7 +976,7 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
         selectedNetworks = new CheckBoxPreference[networks.size()];
         List<String> prefValues = Arrays.asList(UserPreferences
                 .getAutodownloadSelectedNetworks());
-        PreferenceScreen prefScreen = (PreferenceScreen) ui.findPreference(PreferenceController.AUTO_DL_PREF_SCREEN);
+        PreferenceScreen prefScreen = ui.getPreferenceScreen();
         Preference.OnPreferenceClickListener clickListener = preference -> {
             if (preference instanceof CheckBoxPreference) {
                 String key = preference.getKey();
@@ -841,7 +1023,7 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
 
     private void clearAutodownloadSelectedNetworsPreference() {
         if (selectedNetworks != null) {
-            PreferenceScreen prefScreen = (PreferenceScreen) ui.findPreference(PreferenceController.AUTO_DL_PREF_SCREEN);
+            PreferenceScreen prefScreen = ui.getPreferenceScreen();
 
             for (CheckBoxPreference network : selectedNetworks) {
                 if (network != null) {
@@ -1006,11 +1188,16 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
 
     public interface PreferenceUI {
 
+        void setFragment(PreferenceFragmentCompat fragment);
+        PreferenceFragmentCompat getFragment();
+
         /**
          * Finds a preference based on its key.
          */
         Preference findPreference(CharSequence key);
 
-        Activity getActivity();
+        PreferenceScreen getPreferenceScreen();
+
+        AppCompatActivity getActivity();
     }
 }
