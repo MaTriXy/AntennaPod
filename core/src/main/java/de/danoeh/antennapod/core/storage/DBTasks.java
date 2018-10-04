@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.support.annotation.Nullable;
+import android.support.v4.content.ContextCompat;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -34,10 +36,12 @@ import de.danoeh.antennapod.core.service.download.DownloadStatus;
 import de.danoeh.antennapod.core.service.playback.PlaybackService;
 import de.danoeh.antennapod.core.util.Converter;
 import de.danoeh.antennapod.core.util.DownloadError;
+import de.danoeh.antennapod.core.util.IntentUtils;
 import de.danoeh.antennapod.core.util.LongList;
 import de.danoeh.antennapod.core.util.comparator.FeedItemPubdateComparator;
 import de.danoeh.antennapod.core.util.exception.MediaFileNotFoundException;
 import de.danoeh.antennapod.core.util.flattr.FlattrUtils;
+import de.danoeh.antennapod.core.util.playback.PlaybackServiceStarter;
 
 import static android.content.Context.MODE_PRIVATE;
 
@@ -123,16 +127,13 @@ public final class DBTasks {
                             media);
                 }
             }
-            // Start playback Service
-            Intent launchIntent = new Intent(context, PlaybackService.class);
-            launchIntent.putExtra(PlaybackService.EXTRA_PLAYABLE, media);
-            launchIntent.putExtra(PlaybackService.EXTRA_START_WHEN_PREPARED,
-                    startWhenPrepared);
-            launchIntent.putExtra(PlaybackService.EXTRA_SHOULD_STREAM,
-                    shouldStream);
-            launchIntent.putExtra(PlaybackService.EXTRA_PREPARE_IMMEDIATELY,
-                    true);
-            context.startService(launchIntent);
+
+            new PlaybackServiceStarter(context, media)
+                    .callEvenIfRunning(true)
+                    .startWhenPrepared(startWhenPrepared)
+                    .shouldStream(shouldStream)
+                    .start();
+
             if (showPlayer) {
                 // Launch media player
                 context.startActivity(PlaybackService.getPlayerActivityIntent(
@@ -142,8 +143,7 @@ public final class DBTasks {
         } catch (MediaFileNotFoundException e) {
             e.printStackTrace();
             if (media.isPlaying()) {
-                context.sendBroadcast(new Intent(
-                        PlaybackService.ACTION_SHUTDOWN_PLAYBACK_SERVICE));
+                IntentUtils.sendLocalBroadcast(context, PlaybackService.ACTION_SHUTDOWN_PLAYBACK_SERVICE);
             }
             notifyMissingFeedMediaFile(context, media);
         }
@@ -155,42 +155,58 @@ public final class DBTasks {
      * Refreshes a given list of Feeds in a separate Thread. This method might ignore subsequent calls if it is still
      * enqueuing Feeds for download from a previous call
      *
-     * @param context Might be used for accessing the database
-     * @param feeds   List of Feeds that should be refreshed.
+     * @param context  Might be used for accessing the database
+     * @param feeds    List of Feeds that should be refreshed.
      */
-    public static void refreshAllFeeds(final Context context,
-                                       final List<Feed> feeds) {
-        if (isRefreshing.compareAndSet(false, true)) {
-            new Thread() {
-                public void run() {
-                    if (feeds != null) {
-                        refreshFeeds(context, feeds);
-                    } else {
-                        refreshFeeds(context, DBReader.getFeedList());
-                    }
-                    isRefreshing.set(false);
+    public static void refreshAllFeeds(final Context context, final List<Feed> feeds) {
+        refreshAllFeeds(context, feeds, null);
+    }
 
-                    SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-                    prefs.edit().putLong(PREF_LAST_REFRESH, System.currentTimeMillis()).apply();
-
-                    if (FlattrUtils.hasToken()) {
-                        Log.d(TAG, "Flattring all pending things.");
-                        new FlattrClickWorker(context).executeAsync(); // flattr pending things
-
-                        Log.d(TAG, "Fetching flattr status.");
-                        new FlattrStatusFetcher(context).start();
-
-                    }
-                    if (ClientConfig.gpodnetCallbacks.gpodnetEnabled()) {
-                        GpodnetSyncService.sendSyncIntent(context);
-                    }
-                    Log.d(TAG, "refreshAllFeeds autodownload");
-                    autodownloadUndownloadedItems(context);
-                }
-            }.start();
-        } else {
+    /**
+     * Refreshes a given list of Feeds in a separate Thread. This method might ignore subsequent calls if it is still
+     * enqueuing Feeds for download from a previous call
+     *
+     * @param context  Might be used for accessing the database
+     * @param feeds    List of Feeds that should be refreshed.
+     * @param callback Called after everything was added enqueued for download. Might be null.
+     */
+    public static void refreshAllFeeds(final Context context, final List<Feed> feeds, @Nullable Runnable callback) {
+        if (!isRefreshing.compareAndSet(false, true)) {
             Log.d(TAG, "Ignoring request to refresh all feeds: Refresh lock is locked");
+            return;
         }
+
+        new Thread(() -> {
+            if (feeds != null) {
+                refreshFeeds(context, feeds);
+            } else {
+                refreshFeeds(context, DBReader.getFeedList());
+            }
+            isRefreshing.set(false);
+
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+            prefs.edit().putLong(PREF_LAST_REFRESH, System.currentTimeMillis()).apply();
+
+            if (FlattrUtils.hasToken()) {
+                Log.d(TAG, "Flattring all pending things.");
+                new FlattrClickWorker(context).executeAsync(); // flattr pending things
+
+                Log.d(TAG, "Fetching flattr status.");
+                new FlattrStatusFetcher(context).start();
+
+            }
+            if (ClientConfig.gpodnetCallbacks.gpodnetEnabled()) {
+                GpodnetSyncService.sendSyncIntent(context);
+            }
+            // Note: automatic download of episodes will be done but not here.
+            // Instead it is done after all feeds have been refreshed (asynchronously),
+            // in DownloadService.onDestroy()
+            // See Issue #2577 for the details of the rationale
+
+            if (callback != null) {
+                callback.run();
+            }
+        }).start();
     }
 
     /**
@@ -220,27 +236,6 @@ public final class DBTasks {
             }
         }
 
-    }
-
-    /**
-     * Downloads all pages of the given feed.
-     *
-     * @param context Used for requesting the download.
-     * @param feed    The Feed object.
-     */
-    public static void refreshCompleteFeed(final Context context, final Feed feed) {
-        try {
-            refreshFeed(context, feed, true, false);
-        } catch (DownloadRequestException e) {
-            e.printStackTrace();
-            DBWriter.addDownloadStatus(
-                    new DownloadStatus(feed, feed
-                            .getHumanReadableIdentifier(),
-                            DownloadError.ERROR_REQUEST_ERROR, false, e
-                            .getMessage()
-                    )
-            );
-        }
     }
 
     /**
@@ -361,27 +356,6 @@ public final class DBTasks {
         media.setFile_url(null);
         DBWriter.setFeedMedia(media);
         EventDistributor.getInstance().sendFeedUpdateBroadcast();
-    }
-
-    /**
-     * Request the download of all objects in the queue. from a separate Thread.
-     *
-     * @param context Used for requesting the download an accessing the database.
-     */
-    public static void downloadAllItemsInQueue(final Context context) {
-        new Thread() {
-            public void run() {
-                List<FeedItem> queue = DBReader.getQueue();
-                if (!queue.isEmpty()) {
-                    try {
-                        downloadFeedItems(context,
-                                queue.toArray(new FeedItem[queue.size()]));
-                    } catch (DownloadRequestException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }.start();
     }
 
     /**

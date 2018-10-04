@@ -317,7 +317,7 @@ public class OnlineFeedViewActivity extends AppCompatActivity {
                         return handler.parseFeed(feed);
                     } catch (UnsupportedFeedtypeException e) {
                         Log.d(TAG, "Unsupported feed type detected");
-                        if (TextUtils.equals("html", e.getRootElement().toLowerCase())) {
+                        if ("html".equalsIgnoreCase(e.getRootElement())) {
                             showFeedDiscoveryDialog(new File(feed.getFile_url()), feed.getDownload_url());
                             return null;
                         } else {
@@ -342,6 +342,7 @@ public class OnlineFeedViewActivity extends AppCompatActivity {
                     String errorMsg = DownloadError.ERROR_PARSER_EXCEPTION.getErrorString(
                             OnlineFeedViewActivity.this) + " (" + error.getMessage() + ")";
                     showErrorDialog(errorMsg);
+                    Log.d(TAG, "Feed parser exception: " + Log.getStackTraceString(error));
                 });
     }
 
@@ -393,9 +394,9 @@ public class OnlineFeedViewActivity extends AppCompatActivity {
 
         subscribeButton = (Button) header.findViewById(R.id.butSubscribe);
 
-        if (feed.getImage() != null && StringUtils.isNotBlank(feed.getImage().getDownload_url())) {
+        if (StringUtils.isNotBlank(feed.getImageUrl())) {
             Glide.with(this)
-                    .load(feed.getImage().getDownload_url())
+                    .load(feed.getImageUrl())
                     .placeholder(R.color.light_gray)
                     .error(R.color.light_gray)
                     .diskCacheStrategy(ApGlideSettings.AP_DISK_CACHE_STRATEGY)

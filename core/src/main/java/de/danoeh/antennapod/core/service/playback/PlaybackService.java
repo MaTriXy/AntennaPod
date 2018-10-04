@@ -30,12 +30,10 @@ import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
-import android.support.v4.view.InputDeviceCompat;
-import android.support.v7.app.NotificationCompat;
+import android.support.v4.app.NotificationCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
-import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.widget.Toast;
@@ -49,6 +47,7 @@ import java.util.List;
 import de.danoeh.antennapod.core.ClientConfig;
 import de.danoeh.antennapod.core.R;
 import de.danoeh.antennapod.core.event.MessageEvent;
+import de.danoeh.antennapod.core.event.ServiceEvent;
 import de.danoeh.antennapod.core.feed.Chapter;
 import de.danoeh.antennapod.core.feed.Feed;
 import de.danoeh.antennapod.core.feed.FeedItem;
@@ -60,11 +59,14 @@ import de.danoeh.antennapod.core.preferences.PlaybackPreferences;
 import de.danoeh.antennapod.core.preferences.SleepTimerPreferences;
 import de.danoeh.antennapod.core.preferences.UserPreferences;
 import de.danoeh.antennapod.core.receiver.MediaButtonReceiver;
+import de.danoeh.antennapod.core.service.PlayerWidgetJobService;
 import de.danoeh.antennapod.core.storage.DBReader;
 import de.danoeh.antennapod.core.storage.DBTasks;
 import de.danoeh.antennapod.core.storage.DBWriter;
 import de.danoeh.antennapod.core.storage.FeedSearcher;
 import de.danoeh.antennapod.core.util.IntList;
+import de.danoeh.antennapod.core.util.IntentUtils;
+import de.danoeh.antennapod.core.util.gui.NotificationUtils;
 import de.danoeh.antennapod.core.util.QueueAccess;
 import de.danoeh.antennapod.core.util.playback.ExternalMedia;
 import de.danoeh.antennapod.core.util.playback.Playable;
@@ -74,8 +76,6 @@ import de.greenrobot.event.EventBus;
  * Controls the MediaPlayer that plays a FeedMedia-file
  */
 public class PlaybackService extends MediaBrowserServiceCompat {
-    public static final String FORCE_WIDGET_UPDATE = "de.danoeh.antennapod.FORCE_WIDGET_UPDATE";
-    public static final String STOP_WIDGET_UPDATE = "de.danoeh.antennapod.STOP_WIDGET_UPDATE";
     /**
      * Logging tag
      */
@@ -263,6 +263,9 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         Log.d(TAG, "Service created.");
         isRunning = true;
 
+        NotificationCompat.Builder notificationBuilder = createBasicNotification();
+        startForeground(NOTIFICATION_ID, notificationBuilder.build());
+
         registerReceiver(autoStateUpdated, new IntentFilter("com.google.android.gms.car.media.STATUS"));
         registerReceiver(headsetDisconnected, new IntentFilter(Intent.ACTION_HEADSET_PLUG));
         registerReceiver(shutdownReceiver, new IntentFilter(ACTION_SHUTDOWN_PLAYBACK_SERVICE));
@@ -311,14 +314,34 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         }
 
         flavorHelper.initializeMediaPlayer(PlaybackService.this);
-
         mediaSession.setActive(true);
+
+        EventBus.getDefault().post(new ServiceEvent(ServiceEvent.Action.SERVICE_STARTED));
+    }
+
+    private NotificationCompat.Builder createBasicNotification() {
+        final int smallIcon = ClientConfig.playbackServiceCallbacks.getNotificationIconResource(getApplicationContext());
+
+        final PendingIntent pIntent = PendingIntent.getActivity(this, 0,
+                PlaybackService.getPlayerActivityIntent(this),
+                PendingIntent.FLAG_UPDATE_CURRENT);
+
+        return new NotificationCompat.Builder(
+                this, NotificationUtils.CHANNEL_ID_PLAYING)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText("Service is running") // Just in case the notification is not updated (should not occur)
+                .setOngoing(false)
+                .setContentIntent(pIntent)
+                .setWhen(0) // we don't need the time
+                .setSmallIcon(smallIcon)
+                .setPriority(NotificationCompat.PRIORITY_MIN);
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "Service is about to be destroyed");
+        stopForeground(true);
         isRunning = false;
         started = false;
         currentMediaType = MediaType.UNKNOWN;
@@ -340,6 +363,11 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         flavorHelper.unregisterWifiBroadcastReceiver();
         mediaPlayer.shutdown();
         taskManager.shutdown();
+    }
+    
+    private void stopService() {
+        stopForeground(true);
+        stopSelf();
     }
 
     @Override
@@ -436,7 +464,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         Playable playable = intent.getParcelableExtra(EXTRA_PLAYABLE);
         if (keycode == -1 && playable == null && !castDisconnect) {
             Log.e(TAG, "PlaybackService was started with no arguments");
-            stopSelf();
+            stopService();
             return Service.START_NOT_STICKY;
         }
 
@@ -444,10 +472,13 @@ public class PlaybackService extends MediaBrowserServiceCompat {
             Log.d(TAG, "onStartCommand is a redelivered intent, calling stopForeground now.");
             stopForeground(true);
         } else {
-
             if (keycode != -1) {
                 Log.d(TAG, "Received media button event");
-                handleKeycode(keycode, true);
+                boolean handled = handleKeycode(keycode, true);
+                if (!handled) {
+                    stopService();
+                    return Service.START_NOT_STICKY;
+                }
             } else if (!flavorHelper.castDisconnect(castDisconnect) && playable != null) {
                 started = true;
                 boolean stream = intent.getBooleanExtra(EXTRA_SHOULD_STREAM,
@@ -462,6 +493,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
                 }
                 mediaPlayer.playMediaObject(playable, stream, startWhenPrepared, prepareImmediately);
             }
+            setupNotification(playable);
         }
 
         return Service.START_NOT_STICKY;
@@ -487,6 +519,8 @@ public class PlaybackService extends MediaBrowserServiceCompat {
                 } else if (status == PlayerStatus.INITIALIZED) {
                     mediaPlayer.setStartWhenPrepared(true);
                     mediaPlayer.prepare();
+                } else if (mediaPlayer.getPlayable() == null) {
+                    startPlayingFromPreferences();
                 }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY:
@@ -495,6 +529,8 @@ public class PlaybackService extends MediaBrowserServiceCompat {
                 } else if (status == PlayerStatus.INITIALIZED) {
                     mediaPlayer.setStartWhenPrepared(true);
                     mediaPlayer.prepare();
+                } else if (mediaPlayer.getPlayable() == null) {
+                    startPlayingFromPreferences();
                 }
                 return true;
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
@@ -548,6 +584,15 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         return false;
     }
 
+    private void startPlayingFromPreferences() {
+        Playable playable = Playable.PlayableUtils.createInstanceFromPreferences(getApplicationContext());
+        if (playable != null) {
+            mediaPlayer.playMediaObject(playable, false, true, true);
+            started = true;
+            PlaybackService.this.updateMediaSessionMetadata(playable);
+        }
+    }
+
     /**
      * Called by a mediaplayer Activity as soon as it has prepared its
      * mediaplayer.
@@ -566,8 +611,10 @@ public class PlaybackService extends MediaBrowserServiceCompat {
     }
 
     public void notifyVideoSurfaceAbandoned() {
-        stopForeground(!UserPreferences.isPersistNotify());
+        mediaPlayer.pause(true, false);
         mediaPlayer.resetVideoSurface();
+        setupNotification(getPlayable());
+        stopForeground(!UserPreferences.isPersistNotify());
     }
 
     private final PlaybackServiceTaskManager.PSTMCallback taskManagerCallback = new PlaybackServiceTaskManager.PSTMCallback() {
@@ -601,7 +648,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
 
         @Override
         public void onWidgetUpdaterTick() {
-            updateWidget();
+            PlayerWidgetJobService.updateWidget(getBaseContext());
         }
 
         @Override
@@ -613,7 +660,12 @@ public class PlaybackService extends MediaBrowserServiceCompat {
     private final PlaybackServiceMediaPlayer.PSMPCallback mediaPlayerCallback = new PlaybackServiceMediaPlayer.PSMPCallback() {
         @Override
         public void statusChanged(PlaybackServiceMediaPlayer.PSMPInfo newInfo) {
-            currentMediaType = mediaPlayer.getCurrentMediaType();
+            if (mediaPlayer != null) {
+                currentMediaType = mediaPlayer.getCurrentMediaType();
+            } else {
+                currentMediaType = MediaType.UNKNOWN;
+            }
+
             updateMediaSession(newInfo.playerStatus);
             switch (newInfo.playerStatus) {
                 case INITIALIZED:
@@ -638,8 +690,8 @@ public class PlaybackService extends MediaBrowserServiceCompat {
                     break;
 
                 case STOPPED:
-                    //setCurrentlyPlayingMedia(PlaybackPreferences.NO_MEDIA_PLAYING);
-                    //stopSelf();
+                    //writePlaybackPreferencesNoMediaPlaying();
+                    //stopService();
                     break;
 
                 case PLAYING:
@@ -656,21 +708,20 @@ public class PlaybackService extends MediaBrowserServiceCompat {
 
                 case ERROR:
                     writePlaybackPreferencesNoMediaPlaying();
+                    stopService();
                     break;
 
             }
 
-            Intent statusUpdate = new Intent(ACTION_PLAYER_STATUS_CHANGED);
-            // statusUpdate.putExtra(EXTRA_NEW_PLAYER_STATUS, newInfo.playerStatus.ordinal());
-            sendBroadcast(statusUpdate);
-            updateWidget();
+            IntentUtils.sendLocalBroadcast(getApplicationContext(), ACTION_PLAYER_STATUS_CHANGED);
+            PlayerWidgetJobService.updateWidget(getBaseContext());
             bluetoothNotifyChange(newInfo, AVRCP_ACTION_PLAYER_STATUS_CHANGED);
             bluetoothNotifyChange(newInfo, AVRCP_ACTION_META_CHANGED);
         }
 
         @Override
         public void shouldStop() {
-            stopSelf();
+            stopService();
         }
 
         @Override
@@ -719,7 +770,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
             }
             sendNotificationBroadcast(NOTIFICATION_TYPE_ERROR, what);
             writePlaybackPreferencesNoMediaPlaying();
-            stopSelf();
+            stopService();
             return true;
         }
 
@@ -806,7 +857,6 @@ public class PlaybackService extends MediaBrowserServiceCompat {
             if (!isCasting) {
                 stopForeground(true);
             }
-            stopWidgetUpdater();
         }
         if (mediaType == null) {
             sendNotificationBroadcast(NOTIFICATION_TYPE_PLAYBACK_END, 0);
@@ -1004,17 +1054,11 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         editor.commit();
     }
 
-    /**
-     * Send ACTION_PLAYER_STATUS_CHANGED without changing the status attribute.
-     */
-    private void postStatusUpdateIntent() {
-        sendBroadcast(new Intent(ACTION_PLAYER_STATUS_CHANGED));
-    }
-
     private void sendNotificationBroadcast(int type, int code) {
         Intent intent = new Intent(ACTION_PLAYER_NOTIFICATION);
         intent.putExtra(EXTRA_NOTIFICATION_TYPE, type);
         intent.putExtra(EXTRA_NOTIFICATION_CODE, code);
+        intent.setPackage(getPackageName());
         sendBroadcast(intent);
     }
 
@@ -1170,12 +1214,19 @@ public class PlaybackService extends MediaBrowserServiceCompat {
      * Prepares notification and starts the service in the foreground.
      */
     private void setupNotification(final PlaybackServiceMediaPlayer.PSMPInfo info) {
-        final PendingIntent pIntent = PendingIntent.getActivity(this, 0,
-                PlaybackService.getPlayerActivityIntent(this),
-                PendingIntent.FLAG_UPDATE_CURRENT);
+        setupNotification(info.playable);
+    }
 
+    private synchronized void setupNotification(final Playable playable) {
         if (notificationSetupThread != null) {
             notificationSetupThread.interrupt();
+        }
+        if (playable == null) {
+            Log.d(TAG, "setupNotification: playable is null");
+            if (!started) {
+                stopService();
+            }
+            return;
         }
         Runnable notificationSetupTask = new Runnable() {
             Bitmap icon = null;
@@ -1183,48 +1234,47 @@ public class PlaybackService extends MediaBrowserServiceCompat {
             @Override
             public void run() {
                 Log.d(TAG, "Starting background work");
-                if (info.playable != null) {
-                    int iconSize = getResources().getDimensionPixelSize(
-                            android.R.dimen.notification_large_icon_width);
-                    try {
-                        icon = Glide.with(PlaybackService.this)
-                                .load(info.playable.getImageLocation())
-                                .asBitmap()
-                                .diskCacheStrategy(ApGlideSettings.AP_DISK_CACHE_STRATEGY)
-                                .centerCrop()
-                                .into(iconSize, iconSize)
-                                .get();
-                    } catch (Throwable tr) {
-                        Log.e(TAG, "Error loading the media icon for the notification", tr);
+
+                if (mediaPlayer == null) {
+                    Log.d(TAG, "notificationSetupTask: mediaPlayer is null");
+                    if (!started) {
+                        stopService();
                     }
+                    return;
                 }
+
+                int iconSize = getResources().getDimensionPixelSize(
+                        android.R.dimen.notification_large_icon_width);
+                try {
+                    icon = Glide.with(PlaybackService.this)
+                            .load(playable.getImageLocation())
+                            .asBitmap()
+                            .diskCacheStrategy(ApGlideSettings.AP_DISK_CACHE_STRATEGY)
+                            .centerCrop()
+                            .into(iconSize, iconSize)
+                            .get();
+                } catch (Throwable tr) {
+                    Log.e(TAG, "Error loading the media icon for the notification", tr);
+                }
+
                 if (icon == null) {
                     icon = BitmapFactory.decodeResource(getApplicationContext().getResources(),
                             ClientConfig.playbackServiceCallbacks.getNotificationIconResource(getApplicationContext()));
                 }
 
-                if (mediaPlayer == null) {
-                    return;
-                }
                 PlayerStatus playerStatus = mediaPlayer.getPlayerStatus();
-                final int smallIcon = ClientConfig.playbackServiceCallbacks.getNotificationIconResource(getApplicationContext());
 
-                if (!Thread.currentThread().isInterrupted() && started && info.playable != null) {
-                    String contentText = info.playable.getEpisodeTitle();
-                    String contentTitle = info.playable.getFeedTitle();
+                if (!Thread.currentThread().isInterrupted() && started) {
+                    String contentText = playable.getEpisodeTitle();
+                    String contentTitle = playable.getFeedTitle();
                     Notification notification;
 
                     // Builder is v7, even if some not overwritten methods return its parent's v4 interface
-                    NotificationCompat.Builder notificationBuilder = (NotificationCompat.Builder) new NotificationCompat.Builder(
-                            PlaybackService.this)
-                            .setContentTitle(contentTitle)
+                    NotificationCompat.Builder notificationBuilder = createBasicNotification();
+                    notificationBuilder.setContentTitle(contentTitle)
                             .setContentText(contentText)
-                            .setOngoing(false)
-                            .setContentIntent(pIntent)
-                            .setLargeIcon(icon)
-                            .setSmallIcon(smallIcon)
-                            .setWhen(0) // we don't need the time
-                            .setPriority(UserPreferences.getNotifyPriority()); // set notification priority
+                            .setPriority(UserPreferences.getNotifyPriority())
+                            .setLargeIcon(icon); // set notification priority
                     IntList compactActionList = new IntList();
 
                     int numActions = 0; // we start and 0 and then increment by 1 for each call to addAction
@@ -1292,7 +1342,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
 
                     PendingIntent stopButtonPendingIntent = getPendingIntentForMediaAction(
                             KeyEvent.KEYCODE_MEDIA_STOP, numActions);
-                    notificationBuilder.setStyle(new android.support.v7.app.NotificationCompat.MediaStyle()
+                    notificationBuilder.setStyle(new android.support.v4.media.app.NotificationCompat.MediaStyle()
                             .setMediaSession(mediaSession.getSessionToken())
                             .setShowActionsInCompactView(compactActionList.toArray())
                             .setShowCancelButton(true)
@@ -1357,16 +1407,6 @@ public class PlaybackService extends MediaBrowserServiceCompat {
                     position,
                     System.currentTimeMillis());
         }
-    }
-
-    private void stopWidgetUpdater() {
-        taskManager.cancelWidgetUpdater();
-        sendBroadcast(new Intent(STOP_WIDGET_UPDATE));
-    }
-
-    private void updateWidget() {
-        PlaybackService.this.sendBroadcast(new Intent(
-                FORCE_WIDGET_UPDATE));
     }
 
     public boolean sleepTimerActive() {
@@ -1519,7 +1559,7 @@ public class PlaybackService extends MediaBrowserServiceCompat {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (TextUtils.equals(intent.getAction(), ACTION_SHUTDOWN_PLAYBACK_SERVICE)) {
-                stopSelf();
+                stopService();
             }
         }
 
@@ -1645,6 +1685,9 @@ public class PlaybackService extends MediaBrowserServiceCompat {
      * an invalid state.
      */
     public int getDuration() {
+        if (mediaPlayer == null) {
+            return INVALID_TIME;
+        }
         return mediaPlayer.getDuration();
     }
 
@@ -1653,6 +1696,9 @@ public class PlaybackService extends MediaBrowserServiceCompat {
      * is in an invalid state.
      */
     public int getCurrentPosition() {
+        if (mediaPlayer == null) {
+            return INVALID_TIME;
+        }
         return mediaPlayer.getPosition();
     }
 

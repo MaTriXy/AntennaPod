@@ -56,10 +56,16 @@
     <attr name="ic_cast_disconnect" format="reference"/>
     <attr name="ic_swap" format="reference"/>
     <attr name="master_switch_background" format="color"/>
+    <attr name="currently_playing_background" format="color"/>
 
     <!-- Used in itemdescription -->
     <attr name="non_transparent_background" format="reference"/>
     <attr name="overlay_background" format="color"/>
 
     <attr name="nav_drawer_background" format="color"/>
+
+    <attr name="about_screen_background" format="color"/>
+    <attr name="about_screen_card_background" format="color"/>
+    <attr name="about_screen_card_border" format="color"/>
+    <attr name="about_screen_font_color" format="color"/>
 </resources>

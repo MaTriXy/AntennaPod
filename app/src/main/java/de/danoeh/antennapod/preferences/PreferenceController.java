@@ -37,6 +37,7 @@ import android.widget.Toast;
 
 import com.afollestad.materialdialogs.MaterialDialog;
 
+import com.bytehamster.lib.preferencesearch.SearchConfiguration;
 import com.bytehamster.lib.preferencesearch.SearchPreference;
 import de.danoeh.antennapod.activity.AboutActivity;
 import de.danoeh.antennapod.activity.ImportExportActivity;
@@ -146,12 +147,7 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
 
     @Override
     public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-        if(key.equals(UserPreferences.PREF_SONIC)) {
-            CheckBoxPreference prefSonic = (CheckBoxPreference) ui.findPreference(UserPreferences.PREF_SONIC);
-            if(prefSonic != null) {
-                prefSonic.setChecked(sharedPreferences.getBoolean(UserPreferences.PREF_SONIC, false));
-            }
-        }
+
     }
 
 
@@ -166,7 +162,7 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
                 break;
             case R.xml.preferences_autodownload:
                 setupAutoDownloadScreen();
-                buildAutodownloadSelectedNetworsPreference();
+                buildAutodownloadSelectedNetworksPreference();
                 setSelectedNetworksEnabled(UserPreferences.isEnableAutodownloadWifiFilter());
                 buildEpisodeCleanupPreference();
                 break;
@@ -466,18 +462,10 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
         ui.findPreference(UserPreferences.PREF_PARALLEL_DOWNLOADS)
                 .setOnPreferenceChangeListener(
                         (preference, o) -> {
-                            if (o instanceof String) {
-                                try {
-                                    int value = Integer.parseInt((String) o);
-                                    if (1 <= value && value <= 50) {
-                                        setParallelDownloadsText(value);
-                                        return true;
-                                    }
-                                } catch (NumberFormatException e) {
-                                    return false;
-                                }
+                            if (o instanceof Integer) {
+                                setParallelDownloadsText((Integer) o);
                             }
-                            return false;
+                            return true;
                         }
                 );
         // validate and set correct value: number of downloads between 1 and 50 (inclusive)
@@ -561,32 +549,33 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
         final AppCompatActivity activity = ui.getActivity();
 
         SearchPreference searchPreference = (SearchPreference) ui.findPreference("searchPreference");
-        searchPreference.setActivity(activity);
-        searchPreference.setFragmentContainerViewId(R.id.content);
-        searchPreference.setBreadcrumbsEnabled(true);
+        SearchConfiguration config = searchPreference.getSearchConfiguration();
+        config.setActivity(activity);
+        config.setFragmentContainerViewId(R.id.content);
+        config.setBreadcrumbsEnabled(true);
 
-        searchPreference.index()
+        config.index()
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_user_interface))
                 .addFile(R.xml.preferences_user_interface);
-        searchPreference.index()
+        config.index()
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_playback))
                 .addFile(R.xml.preferences_playback);
-        searchPreference.index()
+        config.index()
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_network))
                 .addFile(R.xml.preferences_network);
-        searchPreference.index()
+        config.index()
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_storage))
                 .addFile(R.xml.preferences_storage);
-        searchPreference.index()
+        config.index()
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_network))
                 .addBreadcrumb(R.string.automation)
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_autodownload))
                 .addFile(R.xml.preferences_autodownload);
-        searchPreference.index()
+        config.index()
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_integrations))
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_gpodder))
                 .addFile(R.xml.preferences_gpodder);
-        searchPreference.index()
+        config.index()
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_integrations))
                 .addBreadcrumb(getTitleOfPage(R.xml.preferences_flattr))
                 .addFile(R.xml.preferences_flattr);
@@ -889,11 +878,10 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
     }
 
     private void checkSonicItemVisibility() {
-        if (Build.VERSION.SDK_INT >= 16) {
-            ui.findPreference(UserPreferences.PREF_SONIC).setEnabled(true);
-        } else {
-            Preference prefSonic = ui.findPreference(UserPreferences.PREF_SONIC);
-            prefSonic.setSummary("[Android 4.1+]\n" + prefSonic.getSummary());
+        if (Build.VERSION.SDK_INT < 16) {
+            ListPreference p = (ListPreference) ui.findPreference(UserPreferences.PREF_MEDIA_PLAYER);
+            p.setEntries(R.array.media_player_options_no_sonic);
+            p.setEntryValues(R.array.media_player_values_no_sonic);
         }
     }
 
@@ -957,7 +945,7 @@ public class PreferenceController implements SharedPreferences.OnSharedPreferenc
         return val == null ? "" : val;
     }
 
-    private void buildAutodownloadSelectedNetworsPreference() {
+    private void buildAutodownloadSelectedNetworksPreference() {
         final Activity activity = ui.getActivity();
 
         if (selectedNetworks != null) {

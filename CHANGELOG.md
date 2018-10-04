@@ -1,6 +1,19 @@
 Change Log
 ==========
 
+Version 1.6.6
+-------------
+
+* Experimental new media player (ExoPlayer)
+* Fix for Bluetooth Forward (Oreo)
+* Preference redesign + search
+* Notification improvements
+* Different screens for feed info and settings
+* Sort Queue with Random or Smart Shuffle
+* True Black Theme for AMOLED
+* Improvements to feed parsing
+* Fix for app being killed by Android Oreo
+
 Version 1.6.5
 -------------
 

@@ -23,6 +23,9 @@ import de.danoeh.antennapod.core.service.playback.PlaybackService;
 import de.danoeh.antennapod.core.util.Converter;
 import de.danoeh.antennapod.core.util.playback.Playable;
 import de.danoeh.antennapod.core.util.playback.PlaybackController;
+import rx.Single;
+import rx.android.schedulers.AndroidSchedulers;
+import rx.schedulers.Schedulers;
 
 /**
  * Fragment which is supposed to be displayed outside of the MediaplayerActivity
@@ -37,7 +40,6 @@ public class ExternalPlayerFragment extends Fragment {
     private ImageButton butPlay;
     private TextView mFeedName;
     private ProgressBar mProgressBar;
-
     private PlaybackController controller;
 
     public ExternalPlayerFragment() {
@@ -83,6 +85,11 @@ public class ExternalPlayerFragment extends Fragment {
                 controller.playPause();
             }
         });
+        loadMediaInfo();
+    }
+
+    public void connectToPlaybackService() {
+        controller.init();
     }
 
     private PlaybackController setupPlaybackController() {
@@ -123,8 +130,9 @@ public class ExternalPlayerFragment extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
-        controller.init();
         onPositionObserverUpdate();
+
+        controller.init();
     }
 
     @Override
@@ -164,37 +172,41 @@ public class ExternalPlayerFragment extends Fragment {
 
     private boolean loadMediaInfo() {
         Log.d(TAG, "Loading media info");
-        if (controller != null && controller.serviceAvailable()) {
-            Playable media = controller.getMedia();
-            if (media != null) {
-                txtvTitle.setText(media.getEpisodeTitle());
-                mFeedName.setText(media.getFeedTitle());
-                mProgressBar.setProgress((int)
-                        ((double) controller.getPosition() / controller.getDuration() * 100));
+        if (controller == null) {
+            Log.w(TAG, "loadMediaInfo was called while PlaybackController was null!");
+            return false;
+        }
 
-                Glide.with(getActivity())
-                        .load(media.getImageLocation())
-                        .placeholder(R.color.light_gray)
-                        .error(R.color.light_gray)
-                        .diskCacheStrategy(ApGlideSettings.AP_DISK_CACHE_STRATEGY)
-                        .fitCenter()
-                        .dontAnimate()
-                        .into(imgvCover);
+        Single.create(subscriber -> subscriber.onSuccess(controller.getMedia()))
+                .subscribeOn(Schedulers.newThread())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(media -> updateUi((Playable) media));
+        return true;
+    }
 
-                fragmentLayout.setVisibility(View.VISIBLE);
-                if (controller.isPlayingVideoLocally()) {
-                    butPlay.setVisibility(View.GONE);
-                } else {
-                    butPlay.setVisibility(View.VISIBLE);
-                }
-                return true;
+    private void updateUi(Playable media) {
+        if (media != null) {
+            txtvTitle.setText(media.getEpisodeTitle());
+            mFeedName.setText(media.getFeedTitle());
+            onPositionObserverUpdate();
+
+            Glide.with(getActivity())
+                    .load(media.getImageLocation())
+                    .placeholder(R.color.light_gray)
+                    .error(R.color.light_gray)
+                    .diskCacheStrategy(ApGlideSettings.AP_DISK_CACHE_STRATEGY)
+                    .fitCenter()
+                    .dontAnimate()
+                    .into(imgvCover);
+
+            fragmentLayout.setVisibility(View.VISIBLE);
+            if (controller.isPlayingVideoLocally()) {
+                butPlay.setVisibility(View.GONE);
             } else {
-                Log.w(TAG,  "loadMediaInfo was called while the media object of playbackService was null!");
-                return false;
+                butPlay.setVisibility(View.VISIBLE);
             }
         } else {
-            Log.w(TAG, "loadMediaInfo was called while playbackService was null!");
-            return false;
+            Log.w(TAG,  "loadMediaInfo was called while the media object of playbackService was null!");
         }
     }
 

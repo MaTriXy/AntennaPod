@@ -21,8 +21,7 @@ import java.nio.charset.Charset;
 
 import de.danoeh.antennapod.R;
 import de.danoeh.antennapod.core.preferences.UserPreferences;
-import rx.Observable;
-import rx.Subscriber;
+import rx.Single;
 import rx.Subscription;
 import rx.android.schedulers.AndroidSchedulers;
 import rx.schedulers.Schedulers;
@@ -34,10 +33,8 @@ public class AboutActivity extends AppCompatActivity {
 
     private static final String TAG = AboutActivity.class.getSimpleName();
 
-    private WebView webview;
-    private LinearLayout webviewContainer;
-    private int depth = 0;
-
+    private WebView webView;
+    private LinearLayout webViewContainer;
     private Subscription subscription;
 
     @Override
@@ -46,28 +43,25 @@ public class AboutActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         getSupportActionBar().setDisplayShowHomeEnabled(true);
         setContentView(R.layout.about);
-        webviewContainer = (LinearLayout) findViewById(R.id.webvContainer);
-        webview = (WebView) findViewById(R.id.webvAbout);
-        webview.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
+        webViewContainer = (LinearLayout) findViewById(R.id.webViewContainer);
+        webView = (WebView) findViewById(R.id.webViewAbout);
+        webView.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
         if (UserPreferences.getTheme() == R.style.Theme_AntennaPod_Dark) {
-            if (Build.VERSION.SDK_INT >= 11
-                    && Build.VERSION.SDK_INT <= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1) {
-                webview.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1) {
+                webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             }
-            webview.setBackgroundColor(Color.TRANSPARENT);
+            webView.setBackgroundColor(Color.TRANSPARENT);
         }
-        webview.setWebViewClient(new WebViewClient() {
+        webView.setWebViewClient(new WebViewClient() {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if(url.startsWith("http")) {
-                    depth++;
-                    return false;
-                } else {
+                if (!url.startsWith("http")) {
                     url = url.replace("file:///android_asset/", "");
                     loadAsset(url);
                     return true;
                 }
+                return false;
             }
 
         });
@@ -75,18 +69,20 @@ public class AboutActivity extends AppCompatActivity {
     }
 
     private void loadAsset(String filename) {
-        subscription = Observable.create((Observable.OnSubscribe<String>) subscriber -> {
+        subscription = Single.create(subscriber -> {
             InputStream input = null;
             try {
                 TypedArray res = AboutActivity.this.getTheme().obtainStyledAttributes(
-                        new int[] { android.R.attr.textColorPrimary });
-                int colorResource = res.getColor(0, 0);
-                String colorString = String.format("#%06X", 0xFFFFFF & colorResource);
+                        new int[] { R.attr.about_screen_font_color, R.attr.about_screen_background,
+                        R.attr.about_screen_card_background, R.attr.about_screen_card_border});
+                String fontColor = String.format("#%06X", 0xFFFFFF & res.getColor(0, 0));
+                String backgroundColor = String.format("#%06X", 0xFFFFFF & res.getColor(1, 0));
+                String cardBackground = String.format("#%06X", 0xFFFFFF & res.getColor(2, 0));
+                String cardBorder = String.format("#%06X", 0xFFFFFF & res.getColor(3, 0));
                 res.recycle();
                 input = getAssets().open(filename);
                 String webViewData = IOUtils.toString(input, Charset.defaultCharset());
-                if(!webViewData.startsWith("<!DOCTYPE html>")) {
-                    //webViewData = webViewData.replace("\n\n", "</p><p>");
+                if (!webViewData.startsWith("<!DOCTYPE html>")) {
                     webViewData = webViewData.replace("%", "&#37;");
                     webViewData =
                             "<!DOCTYPE html>" +
@@ -99,42 +95,39 @@ public class AboutActivity extends AppCompatActivity {
                             "           src: url('file:///android_asset/Roboto-Light.ttf');" +
                             "        }" +
                             "        * {" +
-                            "           color: %s;" +
+                            "           color: @fontcolor@;" +
                             "           font-family: roboto-Light;" +
                             "           font-size: 8pt;" +
                             "        }" +
                             "    </style>" +
                             "</head><body><p>" + webViewData + "</p></body></html>";
                     webViewData = webViewData.replace("\n", "<br/>");
-                    depth++;
-                } else {
-                    depth = 0;
                 }
-                webViewData = String.format(webViewData, colorString);
-                subscriber.onNext(webViewData);
+                webViewData = webViewData.replace("@fontcolor@", fontColor);
+                webViewData = webViewData.replace("@background@", backgroundColor);
+                webViewData = webViewData.replace("@card_background@", cardBackground);
+                webViewData = webViewData.replace("@card_border@", cardBorder);
+                subscriber.onSuccess(webViewData);
             } catch (IOException e) {
+                Log.e(TAG, Log.getStackTraceString(e));
                 subscriber.onError(e);
             } finally {
                 IOUtils.closeQuietly(input);
             }
-            subscriber.onCompleted();
         })
                 .subscribeOn(Schedulers.newThread())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
-                        webviewData ->
-                                webview.loadDataWithBaseURL("file:///android_asset/", webviewData, "text/html", "utf-8", "about:blank"),
+                        webViewData ->
+                                webView.loadDataWithBaseURL("file:///android_asset/", webViewData.toString(), "text/html", "utf-8", "file:///android_asset/" + filename.toString()),
                         error -> Log.e(TAG, Log.getStackTraceString(error))
                 );
     }
 
     @Override
     public void onBackPressed() {
-        Log.d(TAG, "depth: " + depth);
-        if(depth == 1) {
-            loadAsset("about.html");
-        } else if(depth > 1) {
-            webview.goBack();
+        if (webView.canGoBack()) {
+            webView.goBack();
         } else {
             super.onBackPressed();
         }
@@ -156,9 +149,9 @@ public class AboutActivity extends AppCompatActivity {
         if(subscription != null) {
             subscription.unsubscribe();
         }
-        if (webviewContainer != null && webview != null) {
-            webviewContainer.removeAllViews();
-            webview.destroy();
+        if (webViewContainer != null && webView != null) {
+            webViewContainer.removeAllViews();
+            webView.destroy();
         }
     }
 }

@@ -7,8 +7,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
 import android.os.Binder;
 import android.os.Build;
@@ -22,6 +20,8 @@ import android.util.Log;
 import android.util.Pair;
 import android.webkit.URLUtil;
 
+import de.danoeh.antennapod.core.storage.PodDBAdapter;
+import de.danoeh.antennapod.core.util.gui.NotificationUtils;
 import org.apache.commons.io.FileUtils;
 import org.xml.sax.SAXException;
 
@@ -56,7 +56,6 @@ import de.danoeh.antennapod.core.R;
 import de.danoeh.antennapod.core.event.DownloadEvent;
 import de.danoeh.antennapod.core.event.FeedItemEvent;
 import de.danoeh.antennapod.core.feed.Feed;
-import de.danoeh.antennapod.core.feed.FeedImage;
 import de.danoeh.antennapod.core.feed.FeedItem;
 import de.danoeh.antennapod.core.feed.FeedMedia;
 import de.danoeh.antennapod.core.feed.FeedPreferences;
@@ -258,6 +257,7 @@ public class DownloadService extends Service {
     public void onCreate() {
         Log.d(TAG, "Service started");
         isRunning = true;
+        PodDBAdapter.getInstance().open(); // Prevent thrashing the database by opening and closing rapidly
         handler = new Handler();
         reportQueue = Collections.synchronizedList(new ArrayList<>());
         downloads = Collections.synchronizedList(new ArrayList<>());
@@ -295,6 +295,7 @@ public class DownloadService extends Service {
 
         setupNotificationBuilders();
         requester = DownloadRequester.getInstance();
+        startForeground(NOTIFICATION_ID, updateNotifications());
     }
 
     @Override
@@ -336,10 +337,11 @@ public class DownloadService extends Service {
 
         // start auto download in case anything new has shown up
         DBTasks.autodownloadUndownloadedItems(getApplicationContext());
+        PodDBAdapter.getInstance().close();
     }
 
     private void setupNotificationBuilders() {
-        notificationCompatBuilder = new NotificationCompat.Builder(this)
+        notificationCompatBuilder = new NotificationCompat.Builder(this, NotificationUtils.CHANNEL_ID_DOWNLOADING)
                 .setOngoing(true)
                 .setContentIntent(ClientConfig.downloadServiceCallbacks.getNotificationContentIntent(this))
                 .setSmallIcon(R.drawable.stat_notify_sync);
@@ -352,7 +354,7 @@ public class DownloadService extends Service {
 
     /**
      * Updates the contents of the service's notifications. Should be called
-     * before setupNotificationBuilders.
+     * after setupNotificationBuilders.
      */
     private Notification updateNotifications() {
         if (notificationCompatBuilder == null) {
@@ -489,9 +491,7 @@ public class DownloadService extends Service {
             if (status.isSuccessful()) {
                 successfulDownloads++;
             } else if (!status.isCancelled()) {
-                if (status.getFeedfileType() != FeedImage.FEEDFILETYPE_FEEDIMAGE) {
-                    createReport = true;
-                }
+                createReport = true;
                 failedDownloads++;
             }
         }
@@ -499,7 +499,7 @@ public class DownloadService extends Service {
         if (createReport) {
             Log.d(TAG, "Creating report");
             // create notification object
-            NotificationCompat.Builder builder = new NotificationCompat.Builder(this)
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NotificationUtils.CHANNEL_ID_ERROR)
                     .setTicker(getString(R.string.download_report_title))
                     .setContentTitle(getString(R.string.download_report_content_title))
                     .setContentText(
@@ -551,7 +551,7 @@ public class DownloadService extends Service {
             final String resourceTitle = (downloadRequest.getTitle() != null) ?
                     downloadRequest.getTitle() : downloadRequest.getSource();
 
-            NotificationCompat.Builder builder = new NotificationCompat.Builder(DownloadService.this);
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(DownloadService.this, NotificationUtils.CHANNEL_ID_USER_ACTION);
             builder.setTicker(getText(R.string.authentication_notification_title))
                     .setContentTitle(getText(R.string.authentication_notification_title))
                     .setContentText(getText(R.string.authentication_notification_msg))
@@ -687,10 +687,6 @@ public class DownloadService extends Service {
                 }
 
                 Log.d(TAG, "Bundling " + results.size() + " feeds");
-
-                for (Pair<DownloadRequest, FeedHandlerResult> result : results) {
-                    removeDuplicateImages(result.second.feed); // duplicate images have to removed because the DownloadRequester does not accept two downloads with the same download URL yet.
-                }
 
                 // Save information of feed in DB
                 if (dbUpdateFuture != null) {
@@ -1098,26 +1094,6 @@ public class DownloadService extends Service {
             postHandler.removeCallbacks(postDownloaderTask);
             postDownloaderTask.run();
             lastPost = now;
-        }
-    }
-
-    /**
-     * Checks if the FeedItems of this feed have images that point to the same URL. If two FeedItems
-     * have an image that points to the same URL, the reference of the second item is removed, so
-     * that every image reference is unique.
-     */
-    @VisibleForTesting
-    public static void removeDuplicateImages(Feed feed) {
-        Set<String> known = new HashSet<>();
-        for (FeedItem item : feed.getItems()) {
-            String url = item.hasItemImage() ? item.getImage().getDownload_url() : null;
-            if (url != null) {
-                if (known.contains(url)) {
-                    item.setImage(null);
-                } else {
-                    known.add(url);
-                }
-            }
         }
     }
 
